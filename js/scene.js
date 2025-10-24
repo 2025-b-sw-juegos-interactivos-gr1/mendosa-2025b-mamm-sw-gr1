@@ -49,5 +49,59 @@ export const createScene = function (engine, canvas) {
     var ground = BABYLON.MeshBuilder.CreateGround("ground", {width: 12, height: 12}, scene);
     ground.material = groundMat;
 
+    // Cargar el modelo 3D del Yeti
+    BABYLON.SceneLoader.Append("Yeti/", "Yeti.gltf", scene, function (scene) {
+        console.log("Yeti cargado exitosamente!");
+        
+        // Encontrar todos los meshes del Yeti (cuerpo, cuernos, ojos, etc.)
+        var yetiMeshes = scene.meshes.filter(m => 
+            m.name.includes("Yeti") || 
+            m.name.includes("Body") || 
+            m.name.includes("Eyes") || 
+            m.name.includes("Teeth") ||
+            m.name.includes("Antlers") ||
+            m.name.includes("Beard") ||
+            m.name.includes("Fur")
+        );
+        
+        console.log("Meshes del Yeti encontrados:", yetiMeshes.length);
+        
+        // Escalar todos los meshes del Yeti
+        yetiMeshes.forEach(mesh => {
+            if (mesh.scaling) {
+                mesh.scaling = new BABYLON.Vector3(0.09, 0.09, 0.09);
+            }
+        });
+        
+        // Buscar el nodo raíz del Yeti para posicionarlo
+        var yetiRoot = scene.transformNodes.find(node => 
+            node.name === "SkeletonGroup" || node.name.includes("Skeleton")
+        );
+        
+        if (yetiRoot) {
+            // Posicionar el Yeti más adelante (más cerca de la cámara)
+            // X = 0 (centro), Y = 0 (suelo), Z = -45 (adelante, hacia la cámara)
+            yetiRoot.position = new BABYLON.Vector3(0, 0, -45);
+            
+            // Rotación para que mire de frente hacia la cámara
+            yetiRoot.rotation.y = Math.PI * 1.5; // 270° - Ajuste para mirar de frente
+            
+            console.log("Yeti posicionado en:", yetiRoot.position);
+            console.log("Yeti rotación:", yetiRoot.rotation.y, "radianes =", BABYLON.Tools.ToDegrees(yetiRoot.rotation.y), "grados");
+        } else {
+            console.warn("No se encontró el nodo raíz del Yeti");
+        }
+        
+        // Reproducir animaciones si existen
+        if (scene.animationGroups && scene.animationGroups.length > 0) {
+            scene.animationGroups.forEach(animGroup => {
+                animGroup.start(true); // true = loop
+                console.log("Animación iniciada:", animGroup.name);
+            });
+        }
+    }, null, function (scene, message) {
+        console.error("Error al cargar el Yeti:", message);
+    });
+
     return scene;
 };
