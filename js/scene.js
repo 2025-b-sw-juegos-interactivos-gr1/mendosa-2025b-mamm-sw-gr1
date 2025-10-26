@@ -66,10 +66,14 @@ export const createScene = function (engine, canvas) {
         
         console.log("Meshes del Yeti encontrados:", yetiMeshes.length);
         
-        // Escalar todos los meshes del Yeti
+        // Escalar Y ROTAR todos los meshes del Yeti
         yetiMeshes.forEach(mesh => {
             if (mesh.scaling) {
                 mesh.scaling = new BABYLON.Vector3(0.09, 0.09, 0.09);
+            }
+            // Rotar cada mesh para que mire de frente
+            if (mesh.rotation) {
+                mesh.rotation.y = Math.PI; // 180 grados
             }
         });
         
@@ -79,12 +83,13 @@ export const createScene = function (engine, canvas) {
         );
         
         if (yetiRoot) {
-            // Posicionar el Yeti más adelante (más cerca de la cámara)
-            // X = 0 (centro), Y = 0 (suelo), Z = -45 (adelante, hacia la cámara)
-            yetiRoot.position = new BABYLON.Vector3(0, 0, -45);
+            // Posicionar el Yeti FRENTE a la cámara
+            // La cámara está en (0, 5, -15) mirando hacia (0, 0, 0)
+            // Ponemos el Yeti en Z positivo para que esté DELANTE
+            yetiRoot.position = new BABYLON.Vector3(0, 0, 45);
             
-            // Rotación para que mire de frente hacia la cámara
-            yetiRoot.rotation.y = Math.PI * 1.5; // 270° - Ajuste para mirar de frente
+            // También rotar el nodo raíz
+            yetiRoot.rotation.y = Math.PI; // 180° - Mirando hacia la cámara
             
             console.log("Yeti posicionado en:", yetiRoot.position);
             console.log("Yeti rotación:", yetiRoot.rotation.y, "radianes =", BABYLON.Tools.ToDegrees(yetiRoot.rotation.y), "grados");
