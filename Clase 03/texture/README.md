@@ -14,7 +14,7 @@ Esta carpeta contiene todas las texturas del proyecto.
 
 1. Descarga las texturas desde [Babylon.js Assets](https://assets.babylonjs.com/environments/)
 2. Coloca los archivos de imagen en esta carpeta
-3. Referencia las texturas en tu código usando la ruta: `texture/nombre-archivo.jpg`
+3. Referencia las texturas en tu código usando la ruta: `texture/nombre-archivo.jpg` :3
 
 ## Formatos soportados:
 
