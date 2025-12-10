@@ -1,0 +1,1566 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Robot de Fábrica - Pick and Deliver Game</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            width: 100%;
+            height: 100vh;
+            overflow: hidden;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
+        }
+
+        #renderCanvas {
+            width: 100%;
+            height: 100%;
+            touch-action: none;
+            outline: none;
+        }
+
+        /* HUD - Heads Up Display */
+        #hud {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            color: white;
+            font-size: 18px;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 20px;
+            border-radius: 10px;
+            border: 2px solid #00ff00;
+            box-shadow: 0 0 20px rgba(0, 255, 0, 0.3);
+            z-index: 100;
+        }
+
+        #hud h2 {
+            margin: 0 0 15px 0;
+            color: #00ff00;
+            font-size: 24px;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+        }
+
+        #hud .status {
+            margin: 8px 0;
+            padding: 8px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 5px;
+        }
+
+        #hud .carrying {
+            color: #ffcc00;
+            font-weight: bold;
+        }
+
+        #hud .not-carrying {
+            color: #888;
+        }
+
+        #controls {
+            position: absolute;
+            bottom: 20px;
+            left: 20px;
+            color: white;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 15px;
+            border-radius: 10px;
+            font-size: 14px;
+            border: 2px solid #0099ff;
+            box-shadow: 0 0 20px rgba(0, 153, 255, 0.3);
+            z-index: 100;
+        }
+
+        #controls h3 {
+            margin: 0 0 10px 0;
+            color: #0099ff;
+            font-size: 18px;
+        }
+
+        #controls ul {
+            list-style: none;
+            margin: 0;
+            padding: 0;
+        }
+
+        #controls li {
+            margin: 5px 0;
+            padding: 5px;
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 3px;
+        }
+
+        #controls kbd {
+            display: inline-block;
+            padding: 3px 8px;
+            background: #333;
+            border: 1px solid #555;
+            border-radius: 3px;
+            font-family: monospace;
+            font-weight: bold;
+            color: #fff;
+            margin-right: 5px;
+        }
+
+        #loadingScreen {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.9);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            color: white;
+            font-size: 24px;
+            z-index: 200;
+        }
+
+        .spinner {
+            border: 4px solid rgba(255, 255, 255, 0.3);
+            border-top: 4px solid #00ff00;
+            border-radius: 50%;
+            width: 60px;
+            height: 60px;
+            animation: spin 1s linear infinite;
+            margin-bottom: 20px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+    <!-- Canvas de Renderizado de Babylon.js -->
+    <canvas id="renderCanvas"></canvas>
+
+    <!-- Pantalla de Carga -->
+    <div id="loadingScreen">
+        <div class="spinner"></div>
+        <p>Cargando Robot de Fábrica...</p>
+    </div>
+
+    <!-- HUD - Información del Juego -->
+    <div id="hud">
+        <h2>🤖 Robot de Fábrica</h2>
+        <div class="status">
+            <strong>⏱️ Tiempo:</strong> 
+            <span id="timeDisplay">0:00</span>
+        </div>
+        <div class="status">
+            <strong>⭐ Puntos:</strong> 
+            <span id="scoreDisplay" style="color: #ffcc00; font-size: 22px; font-weight: bold;">0</span>
+        </div>
+        <div class="status">
+            <strong>📦 Entregados:</strong> 
+            <span id="deliveryCount">0</span> / <span id="targetCount">5</span>
+        </div>
+        <div class="status">
+            <strong>Estado:</strong> 
+            <span id="carryingStatus" class="not-carrying">Manos vacías</span>
+        </div>
+    </div>
+
+    <!-- Controles -->
+    <div id="controls">
+        <h3>⌨️ CONTROLES</h3>
+        <ul>
+            <li><kbd>W</kbd> <kbd>A</kbd> <kbd>S</kbd> <kbd>D</kbd> - Movimiento</li>
+            <li><kbd>ESPACIO</kbd> - Recoger/Soltar componente</li>
+            <li><kbd>MOUSE</kbd> - Rotar cámara</li>
+        </ul>
+    </div>
+
+    <!-- CDN de Babylon.js -->
+    <script src="https://cdn.babylonjs.com/babylon.js"></script>
+    <script src="https://cdn.babylonjs.com/loaders/babylonjs.loaders.min.js"></script>
+
+    <script>
+        // ========================================
+        // CONFIGURACIÓN GLOBAL DEL JUEGO
+        // ========================================
+        const CONFIG = {
+            // Velocidad del jugador
+            playerSpeed: 0.5,
+            
+            // Distancia para recoger objetos
+            pickupDistance: 6,
+            
+            // Velocidad de rotación del jugador
+            rotationSpeed: 0.2,
+            
+            // Sistema de puntuación
+            targetDeliveries: 5,
+            basePoints: 100,
+            speedBonus: 50,
+            
+            // Múltiples componentes
+            maxComponents: 3,
+            
+            // Rutas de los modelos 3D
+            models: {
+                robot: './texturas/lowpoly_robots.glb',
+                component: './texturas/engranaje.glb',
+                conveyorBelt: './texturas/conveyor_belt.glb',
+                container: './texturas/sci-fi_container_games.glb',
+                factory: './texturas/sewing_factory.glb',
+                // Decoración del ambiente
+                plasmaBattery: './texturas/bateria_de_plasmaplasm_battery_low_poly.glb',
+                gearPump: './texturas/bomba_engranajes.glb',
+                box: './texturas/low_poly_box_in_blender_for_videogames.glb'
+            },
+            
+            // Posiciones de las zonas (layout simple y claro)
+            zones: {
+                pickupZone: { x: 8, y: 0, z: -8 },    // Zona A - Izquierda, más adelante
+                deliveryZone: { x: 8, y: 0, z: 70 }     // Zona B - Derecha, más adelante
+            }
+        };
+
+        // ========================================
+        // VARIABLES DE ESTADO DEL JUEGO
+        // ========================================
+        let engine;
+        let scene;
+        let camera;
+        
+        // Elementos del juego
+        let player;              // Robot jugador
+        let component;           // Componente a recoger
+        let pickupZone;          // Zona A - Origen
+        let deliveryZone;        // Zona B - Destino
+        
+        // Estado del juego
+        let isCarrying = false;  // ¿El robot está cargando algo?
+        let deliveryCount = 0;   // Contador de entregas exitosas
+        let score = 0;           // Puntuación total
+        let gameTime = 0;        // Tiempo transcurrido
+        let gameStartTime = 0;   // Tiempo de inicio
+        let gameWon = false;     // ¿Se completó el objetivo?
+        
+        // Múltiples componentes
+        let components = [];     // Array de componentes disponibles
+        let componentModels = []; // Modelos de componentes
+        
+        // Sistemas de partículas
+        let pickupParticles;     // Partículas de recogida
+        let deliveryParticles;   // Partículas de entrega
+        
+        // Animación del robot
+        let robotAnimationGroup; // Grupo de animación del robot
+        
+        // Controles de teclado
+        let inputMap = {
+            w: false,
+            a: false,
+            s: false,
+            d: false,
+            space: false
+        };
+
+        // ========================================
+        // INICIALIZACIÓN DEL JUEGO
+        // ========================================
+        window.addEventListener('DOMContentLoaded', async function() {
+            // Obtener el canvas
+            const canvas = document.getElementById('renderCanvas');
+            
+            // Crear el motor de Babylon.js
+            engine = new BABYLON.Engine(canvas, true, {
+                preserveDrawingBuffer: true,
+                stencil: true
+            });
+
+            // Crear la escena (pasando canvas como parámetro)
+            scene = await createScene(canvas);
+
+            // Ocultar pantalla de carga cuando todo esté listo
+            document.getElementById('loadingScreen').style.display = 'none';
+            
+            // Inicializar cronómetro
+            gameStartTime = Date.now();
+
+            // Loop de renderizado
+            engine.runRenderLoop(function() {
+                // Actualizar lógica del juego
+                updateGame();
+                
+                // Actualizar cronómetro
+                updateTimer();
+                
+                // Renderizar la escena
+                scene.render();
+            });
+
+            // Ajustar canvas al redimensionar ventana
+            window.addEventListener('resize', function() {
+                engine.resize();
+            });
+        });
+
+        // ========================================
+        // CREACIÓN DE LA ESCENA
+        // ========================================
+        async function createScene(canvas) {
+            // Crear escena
+            const scene = new BABYLON.Scene(engine);
+            scene.clearColor = new BABYLON.Color4(0.1, 0.1, 0.15, 1.0);
+            
+            // Habilitar colisiones
+            scene.collisionsEnabled = true;
+
+            // ========================================
+            // CÁMARA
+            // ========================================
+            // Cámara tipo ArcRotate (tercera persona orbital)
+            camera = new BABYLON.ArcRotateCamera(
+                "camera",
+                -Math.PI / 2, // Ángulo horizontal (alpha)
+                Math.PI / 3.2,  // Ángulo vertical (beta)
+                14,           // Radio/distancia
+                new BABYLON.Vector3(0, 10, -15), // Target inicial
+                scene
+            );
+            
+            // Configurar cámara
+            camera.attachControl(canvas, true);
+            camera.lowerRadiusLimit = 8;
+            camera.upperRadiusLimit = 52;
+            camera.lowerBetaLimit = 0.2;
+            camera.upperBetaLimit = Math.PI / 2.3;
+            camera.wheelPrecision = 25;
+            camera.panningSensibility = 0; // Deshabilitar paneo
+            camera.inertia = 0.8; // Suavidad de movimiento de cámara
+            camera.angularSensibilityX = 1000; // Sensibilidad horizontal
+            camera.angularSensibilityY = 1000; // Sensibilidad vertical
+
+            // ========================================
+            // ILUMINACIÓN
+            // ========================================
+            // Luz ambiente general
+            const hemisphericLight = new BABYLON.HemisphericLight(
+                "hemiLight",
+                new BABYLON.Vector3(0, 1, 0),
+                scene
+            );
+            hemisphericLight.intensity = 0.7;
+            hemisphericLight.diffuseColor = new BABYLON.Color3(0.8, 0.85, 0.9);
+            hemisphericLight.groundColor = new BABYLON.Color3(0.3, 0.3, 0.35);
+
+            // Luz direccional principal (simula techo de fábrica)
+            const directionalLight = new BABYLON.DirectionalLight(
+                "dirLight",
+                new BABYLON.Vector3(-0.3, -1, -0.2),
+                scene
+            );
+            directionalLight.position = new BABYLON.Vector3(10, 20, 10);
+            directionalLight.intensity = 1.0;
+
+            // Luz en Zona A (azul)
+            const pickupLight = new BABYLON.PointLight(
+                "pickupLight",
+                new BABYLON.Vector3(CONFIG.zones.pickupZone.x, 4, CONFIG.zones.pickupZone.z),
+                scene
+            );
+            pickupLight.intensity = 1.2;
+            pickupLight.diffuse = new BABYLON.Color3(0.3, 0.7, 1);
+            pickupLight.range = 12;
+
+            // Luz en Zona B (verde)
+            const deliveryLight = new BABYLON.PointLight(
+                "deliveryLight",
+                new BABYLON.Vector3(CONFIG.zones.deliveryZone.x, 4, CONFIG.zones.deliveryZone.z),
+                scene
+            );
+            deliveryLight.intensity = 1.2;
+            deliveryLight.diffuse = new BABYLON.Color3(0.3, 1, 0.4);
+            deliveryLight.range = 12;
+
+            // ========================================
+            // SUELO DE LA FÁBRICA
+            // ========================================
+            const ground = BABYLON.MeshBuilder.CreateGround(
+                "ground",
+                { width: 50, height: 50 },
+                scene
+            );
+            
+            // Material del suelo (estilo fábrica industrial)
+            const groundMaterial = new BABYLON.StandardMaterial("groundMat", scene);
+            groundMaterial.diffuseColor = new BABYLON.Color3(0.3, 0.3, 0.35);
+            groundMaterial.specularColor = new BABYLON.Color3(0.1, 0.1, 0.1);
+            
+            // Crear textura procedural de grid simple
+            const groundTexture = new BABYLON.DynamicTexture("groundTexture", 512, scene);
+            const context = groundTexture.getContext();
+            
+            // Dibujar grid en el canvas
+            context.fillStyle = "#4a4a52";
+            context.fillRect(0, 0, 512, 512);
+            context.strokeStyle = "#6a6a72";
+            context.lineWidth = 2;
+            
+            // Líneas verticales
+            for (let i = 0; i <= 512; i += 64) {
+                context.beginPath();
+                context.moveTo(i, 0);
+                context.lineTo(i, 512);
+                context.stroke();
+            }
+            
+            // Líneas horizontales
+            for (let i = 0; i <= 512; i += 64) {
+                context.beginPath();
+                context.moveTo(0, i);
+                context.lineTo(512, i);
+                context.stroke();
+            }
+            
+            groundTexture.update();
+            groundMaterial.diffuseTexture = groundTexture;
+            groundMaterial.diffuseTexture.uScale = 10;
+            groundMaterial.diffuseTexture.vScale = 10;
+            
+            ground.material = groundMaterial;
+            ground.checkCollisions = true;
+
+            // ========================================
+            // CARGAR MODELOS 3D
+            // ========================================
+            await loadGameModels(scene);
+
+            // ========================================
+            // SISTEMA DE INPUT (TECLADO)
+            // ========================================
+            setupInputSystem(scene);
+
+            // ========================================
+            // PAREDES INVISIBLES (LÍMITES DEL MAPA)
+            // ========================================
+            createBoundaries(scene);
+
+            return scene;
+        }
+
+        // ========================================
+        // CARGA DE MODELOS 3D
+        // ========================================
+        async function loadGameModels(scene) {
+            // ========================================
+            // 🤖 JUGADOR - ROBOT
+            // ========================================
+            try {
+                const robotResult = await BABYLON.SceneLoader.ImportMeshAsync(
+                    "",
+                    "",
+                    CONFIG.models.robot,
+                    scene
+                );
+
+                // Crear contenedor para el robot
+                player = new BABYLON.TransformNode("player", scene);
+                player.position = new BABYLON.Vector3(0, 0, -5);
+
+                // SOLUCIÓN: Usar solo el primer mesh válido para evitar duplicados
+                if (robotResult.meshes.length > 1) {
+                    // Filtrar meshes válidos (ignorar root vacío)
+                    const validMeshes = robotResult.meshes.filter(m => m.getTotalVertices() > 0);
+                    
+                    if (validMeshes.length > 0) {
+                        // USAR SOLO EL PRIMER MESH PARA EVITAR DUPLICADOS
+                        const mainMesh = validMeshes[0];
+                        mainMesh.parent = player;
+                        mainMesh.scaling = new BABYLON.Vector3(3.2, 3.2, 3.2);
+                        mainMesh.position = new BABYLON.Vector3(0, 0, 0);
+                        
+                        // Ocultar los demás meshes duplicados
+                        for (let i = 1; i < validMeshes.length; i++) {
+                            validMeshes[i].isVisible = false;
+                        }
+                    }
+                } else if (robotResult.meshes[0]) {
+                    robotResult.meshes[0].parent = player;
+                    robotResult.meshes[0].scaling = new BABYLON.Vector3(1.2, 1.2, 1.2);
+                }
+
+                // Guardar la animación del robot si existe
+                if (robotResult.animationGroups && robotResult.animationGroups.length > 0) {
+                    robotAnimationGroup = robotResult.animationGroups[0];
+                    robotAnimationGroup.stop(); // Detener la animación inicialmente
+                    robotAnimationGroup.loopAnimation = true; // Configurar para loop
+                }
+
+                console.log("✅ Robot cargado correctamente");
+
+            } catch (error) {
+                console.warn("⚠️ No se pudo cargar el modelo del robot, usando primitivo:", error);
+                
+                // FALLBACK: Crear robot con primitivos
+                player = BABYLON.MeshBuilder.CreateBox(
+                    "player",
+                    { width: 1, height: 2, depth: 1 },
+                    scene
+                );
+                player.position = new BABYLON.Vector3(0, 1, -5);
+                
+                const playerMaterial = new BABYLON.StandardMaterial("playerMat", scene);
+                playerMaterial.diffuseColor = new BABYLON.Color3(1, 0.8, 0); // Amarillo
+                playerMaterial.emissiveColor = new BABYLON.Color3(0.2, 0.16, 0);
+                player.material = playerMaterial;
+                player.checkCollisions = true;
+            }
+
+            // ========================================
+            // ⚙️ MÚLTIPLES COMPONENTES - ENGRANAJES
+            // ========================================
+            await createMultipleComponents(scene);
+
+            // ========================================
+            // 💫 SISTEMAS DE PARTÍCULAS
+            // ========================================
+            createParticleSystems(scene);
+
+            // ========================================
+            // 📦 ZONA A - CINTA TRANSPORTADORA DE RECOGIDA
+            // ========================================
+            try {
+                const conveyorAResult = await BABYLON.SceneLoader.ImportMeshAsync(
+                    "",
+                    "",
+                    CONFIG.models.conveyorBelt,
+                    scene
+                );
+
+                pickupZone = new BABYLON.TransformNode("pickupZone", scene);
+                pickupZone.position = new BABYLON.Vector3(
+                    10,
+                    0,
+                    0
+                );
+
+                if (conveyorAResult.meshes.length > 0) {
+                    const validMeshes = conveyorAResult.meshes.filter(m => m.getTotalVertices() > 0);
+                    
+                    // Crear un contenedor y escalar todo el conjunto
+                    const conveyorWrapper = new BABYLON.TransformNode("conveyorWrapper", scene);
+                    conveyorWrapper.parent = pickupZone;
+                    conveyorWrapper.scaling = new BABYLON.Vector3(0.2, 0.2, 0.2);
+                    conveyorWrapper.rotation = new BABYLON.Vector3(
+                        BABYLON.Tools.ToRadians(180),   // 90° en X - horizontal
+                        BABYLON.Tools.ToRadians(90),    // 0° en Y
+                        BABYLON.Tools.ToRadians(100)     // 0° en Z
+                    );
+                    conveyorWrapper.position.y = 6;
+                    
+                    validMeshes.forEach(mesh => {
+                        mesh.parent = conveyorWrapper;
+                    });
+                }
+
+                console.log("✅ Zona A cargada correctamente");
+
+            } catch (error) {
+                console.warn("⚠️ No se pudo cargar la cinta transportadora A, usando primitivo:", error);
+                
+                // FALLBACK
+                pickupZone = BABYLON.MeshBuilder.CreateBox(
+                    "pickupZone",
+                    { width: 4, height: 0.5, depth: 2 },
+                    scene
+                );
+                pickupZone.position = new BABYLON.Vector3(
+                    CONFIG.zones.pickupZone.x,
+                    0.25,
+                    CONFIG.zones.pickupZone.z
+                );
+                
+                const pickupMaterial = new BABYLON.StandardMaterial("pickupMat", scene);
+                pickupMaterial.diffuseColor = new BABYLON.Color3(0, 0.5, 1); // Azul
+                pickupMaterial.emissiveColor = new BABYLON.Color3(0, 0.1, 0.2);
+                pickupZone.material = pickupMaterial;
+            }
+
+            // ========================================
+            // 🎯 ZONA B - CONTENEDOR DE ENTREGA
+            // ========================================
+            try {
+                const deliveryResult = await BABYLON.SceneLoader.ImportMeshAsync(
+                    "",
+                    "",
+                    CONFIG.models.container,
+                    scene
+                );
+
+                deliveryZone = new BABYLON.TransformNode("deliveryZone", scene);
+                deliveryZone.position = new BABYLON.Vector3(
+                    CONFIG.zones.deliveryZone.x,
+                    5,
+                    CONFIG.zones.deliveryZone.z
+                );
+
+                if (deliveryResult.meshes.length > 0) {
+                    const validMeshes = deliveryResult.meshes.filter(m => m.getTotalVertices() > 0);
+                    
+                    // Crear un contenedor y escalar todo el conjunto
+                    const containerWrapper = new BABYLON.TransformNode("containerWrapper", scene);
+                    containerWrapper.parent = deliveryZone;
+                    containerWrapper.scaling = new BABYLON.Vector3(0.095, 0.095, 0.095);
+                    
+                    validMeshes.forEach(mesh => {
+                        mesh.parent = containerWrapper;
+                    });
+                }
+
+                console.log("✅ Zona B cargada correctamente");
+
+            } catch (error) {
+                console.warn("⚠️ No se pudo cargar el contenedor de entrega, usando primitivo:", error);
+                
+                // FALLBACK
+                deliveryZone = BABYLON.MeshBuilder.CreateBox(
+                    "deliveryZone",
+                    { width: 4, height: 0.5, depth: 2 },
+                    scene
+                );
+                deliveryZone.position = new BABYLON.Vector3(
+                    CONFIG.zones.deliveryZone.x,
+                    0.25,
+                    CONFIG.zones.deliveryZone.z
+                );
+                
+                const deliveryMaterial = new BABYLON.StandardMaterial("deliveryMat", scene);
+                deliveryMaterial.diffuseColor = new BABYLON.Color3(0, 1, 0); // Verde
+                deliveryMaterial.emissiveColor = new BABYLON.Color3(0, 0.2, 0);
+                deliveryZone.material = deliveryMaterial;
+            }
+
+            // ========================================
+            // 🏭 ESCENARIO DE FÁBRICA COMPLETO
+            // ========================================
+            await createFactoryEnvironment(scene);
+
+            // ========================================
+            // INDICADORES VISUALES
+            // ========================================
+            createZoneIndicators(scene);
+        }
+
+        // ========================================
+        // CREAR ENTORNO DE FÁBRICA SIMPLE Y COHERENTE
+        // ========================================
+        async function createFactoryEnvironment(scene) {
+            
+            // ========================================
+            // EDIFICIO DE FÁBRICA (FONDO) - CENTRO DEL ESCENARIO
+            // ========================================
+            try {
+                const factoryResult = await BABYLON.SceneLoader.ImportMeshAsync(
+                    "",
+                    "",
+                    CONFIG.models.factory,
+                    scene
+                );
+
+                if (factoryResult.meshes[0]) {
+                    const factoryContainer = new BABYLON.TransformNode("factoryContainer", scene);
+                    
+                    const validMeshes = factoryResult.meshes.filter(m => m.getTotalVertices() > 0);
+                    validMeshes.forEach(mesh => {
+                        mesh.parent = factoryContainer;
+                    });
+                    
+                    // Posicionar la fábrica como fondo del escenario
+                    factoryContainer.position = new BABYLON.Vector3(-10, 0, 20);
+                    factoryContainer.scaling = new BABYLON.Vector3(9, 9, 9);
+                    factoryContainer.rotation.y = Math.PI; // Rotar hacia el jugador
+                    
+                    console.log("✅ Edificio de fábrica cargado como escenario");
+                }
+            } catch (error) {
+                console.log("⚠️ No se pudo cargar el edificio de fábrica");
+                
+                // FALLBACK: Crear paredes simples
+                const wallMaterial = new BABYLON.StandardMaterial("wallMat", scene);
+                wallMaterial.diffuseColor = new BABYLON.Color3(0.4, 0.4, 0.45);
+                
+                const backWall = BABYLON.MeshBuilder.CreateBox(
+                    "backWall",
+                    { width: 40, height: 10, depth: 1 },
+                    scene
+                );
+                backWall.position = new BABYLON.Vector3(0, 5, 20);
+                backWall.material = wallMaterial;
+            }
+
+            console.log("✅ Entorno de fábrica creado");
+
+            // ========================================
+            // DECORACIÓN AMBIENTAL - BATERÍAS DE PLASMA
+            // ========================================
+            try {
+                const batteryPositions = [
+                    { x: -8, z: -5 },   // Izquierda cerca de zona A
+                    { x: -28, z: 75 },   // Izquierda centro
+                    { x: 41.5, z: -30 },   // Derecha
+                    { x: 14, z: 70 }    // Cerca de zona B
+                ];
+
+                for (let i = 0; i < batteryPositions.length; i++) {
+                    const batteryResult = await BABYLON.SceneLoader.ImportMeshAsync(
+                        "",
+                        "",
+                        CONFIG.models.plasmaBattery,
+                        scene
+                    );
+
+                    if (batteryResult.meshes.length > 0) {
+                        const batteryContainer = new BABYLON.TransformNode(`battery${i}`, scene);
+                        batteryContainer.position = new BABYLON.Vector3(
+                            batteryPositions[i].x,
+                            3,
+                            batteryPositions[i].z
+                        );
+
+                        const validMeshes = batteryResult.meshes.filter(m => m.getTotalVertices() > 0);
+                        validMeshes.forEach(mesh => {
+                            mesh.parent = batteryContainer;
+                        });
+
+                        batteryContainer.scaling = new BABYLON.Vector3(2.8, 2.8, 2.8);
+                        batteryContainer.rotation.y = Math.random() * Math.PI ;
+
+                        // Luz azul pulsante de la batería
+                        const batteryLight = new BABYLON.PointLight(
+                            `batteryLight${i}`,
+                            new BABYLON.Vector3(batteryPositions[i].x, 2, batteryPositions[i].z),
+                            scene
+                        );
+                        batteryLight.intensity = 0.3;
+                        batteryLight.diffuse = new BABYLON.Color3(0.2, 0.5, 1);
+                        batteryLight.range = 8;
+                    }
+                }
+
+                console.log("✅ Baterías de plasma cargadas");
+            } catch (error) {
+                console.log("⚠️ No se pudieron cargar las baterías de plasma");
+            }
+
+            // ========================================
+            // DECORACIÓN AMBIENTAL - BOMBAS DE ENGRANAJES
+            // ========================================
+            try {
+                const pumpPositions = [
+                    { x: -25, z: -8, rotation: Math.PI / 2 },      // Cerca de Grupo 1 de cajas (zona A izquierda)
+                    { x: -22, z: 15, rotation: -Math.PI / 2 },     // Centro izquierda
+                    { x: 48, z: -10, rotation: Math.PI / 4 },      // Derecha
+                    { x: 45, z: 20, rotation: 0 },                 // Cerca de zona B
+                    { x: 37, z: 10, rotation: Math.PI / 6 }        // Centro
+                ];
+
+                console.log("🔧 Iniciando carga de bombas de engranajes...");
+
+                for (let i = 0; i < pumpPositions.length; i++) {
+                    const pumpResult = await BABYLON.SceneLoader.ImportMeshAsync(
+                        "",
+                        "",
+                        CONFIG.models.gearPump,
+                        scene
+                    );
+
+                    console.log(`Bomba ${i + 1} - Meshes cargados:`, pumpResult.meshes.length);
+
+                    if (pumpResult.meshes.length > 0) {
+                        const pumpContainer = new BABYLON.TransformNode(`pump${i}`, scene);
+                        pumpContainer.position = new BABYLON.Vector3(
+                            pumpPositions[i].x,
+                            0,  // Elevar para mejor visibilidad
+                            pumpPositions[i].z
+                        );
+
+                        const validMeshes = pumpResult.meshes.filter(m => m.getTotalVertices() > 0);
+                        console.log(`Bomba ${i + 1} - Meshes válidos:`, validMeshes.length);
+                        
+                        validMeshes.forEach(mesh => {
+                            mesh.parent = pumpContainer;
+                            mesh.isVisible = true;  // Asegurar visibilidad
+                        });
+
+                        pumpContainer.scaling = new BABYLON.Vector3(22, 22, 22);  // Escala más pequeña pero visible
+                        // Acostar la bomba (rotación en X) y luego orientarla (rotación en Y)
+                        pumpContainer.rotation = new BABYLON.Vector3(
+                        BABYLON.Tools.ToRadians(270),   // 90° en X - horizontal
+                        BABYLON.Tools.ToRadians(90),    // 0° en Y
+                        BABYLON.Tools.ToRadians(90)     // 0° en Z
+                    );
+                        
+                        console.log(`✅ Bomba ${i + 1} posicionada en:`, pumpContainer.position);
+                    }
+                }
+
+                console.log("✅ Bombas de engranajes cargadas exitosamente");
+            } catch (error) {
+                console.error("❌ Error al cargar las bombas de engranajes:", error);
+            }
+
+            // ========================================
+            // DECORACIÓN AMBIENTAL - CAJAS APILADAS
+            // ========================================
+            try {
+                const boxGroups = [
+                    // Grupo 1: Cerca de zona A (izquierda)
+                    [
+                        { x: -25, y: 0, z: -10, scale: 0.08, rotation: 0.2 },
+                        { x: -29, y: 7, z: -10, scale: 0.08, rotation: -0.2 },
+                        { x: -24.5, y: 3.5, z: -10.5, scale: 0.08, rotation: 0.3 }
+                    ],
+                    // Grupo 2: Centro izquierda
+                    [
+                        { x: -26, y: 0, z: 55, scale: 0.08, rotation: -0.4 },
+                        { x: -20.5, y: 3.5, z: 55, scale: 0.08, rotation: 0.2 }
+                    ],
+                    // Grupo 3: Derecha
+                    [
+                        { x: 46, y: 0, z: -20, scale: 0.08, rotation: 0.8 },
+                        { x: 46, y: 0, z: -20, scale: 0.08, rotation: -0.2 },
+                        { x: 45.5, y: 3.5, z: -20.5, scale: 0.08, rotation: 0.9 }
+                    ],
+                    // Grupo 4: Cerca de zona B
+                    [
+                        { x: 44, y: 0, z: 75, scale: 0.08, rotation: 0.3 },
+                        { x: 37.5, y: 3.5, z: 70, scale: 0.08, rotation: -0.7 }
+                    ],
+                    // Grupo 5: Centro derecha
+                    [
+                        { x: 52, y: 0, z: 60, scale: 0.08, rotation: 1.2 }
+                    ]
+                ];
+
+                let boxIndex = 0;
+                for (const group of boxGroups) {
+                    for (const boxPos of group) {
+                        const boxResult = await BABYLON.SceneLoader.ImportMeshAsync(
+                            "",
+                            "",
+                            CONFIG.models.box,
+                            scene
+                        );
+
+                        if (boxResult.meshes.length > 0) {
+                            const boxContainer = new BABYLON.TransformNode(`box${boxIndex}`, scene);
+                            boxContainer.position = new BABYLON.Vector3(
+                                boxPos.x,
+                                boxPos.y,
+                                boxPos.z
+                            );
+
+                            const validMeshes = boxResult.meshes.filter(m => m.getTotalVertices() > 0);
+                            validMeshes.forEach(mesh => {
+                                mesh.parent = boxContainer;
+                            });
+
+                            boxContainer.scaling = new BABYLON.Vector3(boxPos.scale, boxPos.scale, boxPos.scale);
+                            boxContainer.rotation.y = boxPos.rotation;
+
+                            boxIndex++;
+                        }
+                    }
+                }
+
+                console.log(`✅ ${boxIndex} cajas cargadas`);
+            } catch (error) {
+                console.log("⚠️ No se pudieron cargar las cajas");
+            }
+        }
+
+        // ========================================
+        // INDICADORES VISUALES DE ZONAS
+        // ========================================
+        function createZoneIndicators(scene) {
+            // ========================================
+            // ZONA A - INDICADOR DE RECOGIDA (IZQUIERDA - AZUL)
+            // ========================================
+            const pickupIndicator = BABYLON.MeshBuilder.CreateCylinder(
+                "pickupIndicator",
+                { diameter: 6, height: 0.2 },
+                scene
+            );
+            pickupIndicator.position = new BABYLON.Vector3(
+                CONFIG.zones.pickupZone.x,
+                0.1,
+                CONFIG.zones.pickupZone.z
+            );
+            
+            const pickupMat = new BABYLON.StandardMaterial("pickupIndicatorMat", scene);
+            pickupMat.diffuseColor = new BABYLON.Color3(0.2, 0.6, 1);
+            pickupMat.alpha = 0.5;
+            pickupMat.emissiveColor = new BABYLON.Color3(0.1, 0.4, 1);
+            pickupIndicator.material = pickupMat;
+
+            // ========================================
+            // ZONA B - INDICADOR DE ENTREGA (DERECHA - VERDE)
+            // ========================================
+            const deliveryIndicator = BABYLON.MeshBuilder.CreateCylinder(
+                "deliveryIndicator",
+                { diameter: 6, height: 0.2 },
+                scene
+            );
+            deliveryIndicator.position = new BABYLON.Vector3(
+                CONFIG.zones.deliveryZone.x,
+                0.1,
+                CONFIG.zones.deliveryZone.z
+            );
+            
+            const deliveryMat = new BABYLON.StandardMaterial("deliveryIndicatorMat", scene);
+            deliveryMat.diffuseColor = new BABYLON.Color3(0.2, 1, 0.3);
+            deliveryMat.alpha = 0.5;
+            deliveryMat.emissiveColor = new BABYLON.Color3(0.1, 1, 0.2);
+            deliveryIndicator.material = deliveryMat;
+
+            // Animación de pulso suave
+            scene.registerBeforeRender(() => {
+                const pulse = 0.4 + Math.sin(Date.now() * 0.002) * 0.2;
+                pickupMat.alpha = pulse;
+                deliveryMat.alpha = pulse;
+            });
+        }
+
+        // ========================================
+        // SISTEMA DE INPUT (TECLADO)
+        // ========================================
+        function setupInputSystem(scene) {
+            // Detectar teclas presionadas
+            scene.onKeyboardObservable.add((kbInfo) => {
+                const key = kbInfo.event.key.toLowerCase();
+                
+                switch (kbInfo.type) {
+                    case BABYLON.KeyboardEventTypes.KEYDOWN:
+                        // Teclas de movimiento
+                        if (key === 'w' || key === 'a' || key === 's' || key === 'd') {
+                            inputMap[key] = true;
+                        }
+                        // Tecla de interacción (espacio)
+                        if (key === ' ' && !inputMap.space) {
+                            inputMap.space = true;
+                            handleInteraction();
+                        }
+                        break;
+                        
+                    case BABYLON.KeyboardEventTypes.KEYUP:
+                        // Teclas de movimiento
+                        if (key === 'w' || key === 'a' || key === 's' || key === 'd') {
+                            inputMap[key] = false;
+                        }
+                        // Resetear espacio
+                        if (key === ' ') {
+                            inputMap.space = false;
+                        }
+                        break;
+                }
+            });
+        }
+
+        // ========================================
+        // LÓGICA DE INTERACCIÓN (RECOGER/SOLTAR)
+        // ========================================
+        function handleInteraction() {
+            if (!isCarrying) {
+                // INTENTAR RECOGER COMPONENTE
+                tryPickupComponent();
+            } else {
+                // INTENTAR ENTREGAR COMPONENTE
+                tryDeliverComponent();
+            }
+        }
+
+        // ========================================
+        // RECOGER COMPONENTE (MÚLTIPLES COMPONENTES)
+        // ========================================
+        function tryPickupComponent() {
+            // Buscar el componente más cercano
+            let closestComponent = null;
+            let minDistance = CONFIG.pickupDistance;
+            
+            for (let comp of components) {
+                if (!comp.isPickedUp) {
+                    const distance = BABYLON.Vector3.Distance(
+                        player.position,
+                        comp.node.position
+                    );
+                    
+                    if (distance < minDistance) {
+                        minDistance = distance;
+                        closestComponent = comp;
+                    }
+                }
+            }
+            
+            // Si encontramos un componente cercano, recogerlo
+            if (closestComponent) {
+                // TÉCNICA DE EMPARENTAMIENTO
+                closestComponent.node.parent = player;
+                
+                // Posicionar componente en frente del robot, como si estuviera en sus manos
+                closestComponent.node.position = new BABYLON.Vector3(0, 8, -3.5); // Altura aumentada
+                closestComponent.node.rotation = new BABYLON.Vector3(0, 0, 0);
+                
+                // Marcar como recogido
+                closestComponent.isPickedUp = true;
+                component = closestComponent.node; // Guardar referencia
+                
+                // Actualizar estado
+                isCarrying = true;
+                updateHUD();
+                
+                // Efecto de partículas
+                if (pickupParticles) {
+                    pickupParticles.emitter = closestComponent.node.position.clone();
+                    pickupParticles.start();
+                    setTimeout(() => pickupParticles.stop(), 500);
+                }
+                
+                console.log("✅ Componente recogido");
+                showFeedback("¡Componente recogido! +50 pts", "success");
+            } else {
+                console.log("❌ Demasiado lejos del componente");
+                showFeedback("¡Acércate más al componente!", "warning");
+            }
+        }
+
+        // ========================================
+        // ENTREGAR COMPONENTE
+        // ========================================
+        function tryDeliverComponent() {
+            // Verificar si estamos en la zona de entrega
+            const distance = BABYLON.Vector3.Distance(
+                player.position,
+                deliveryZone.position
+            );
+
+            if (distance <= CONFIG.pickupDistance) {
+                // TÉCNICA DE DESEMPARENTAMIENTO
+                component.parent = null;
+                
+                // Marcar componente como disponible nuevamente
+                for (let comp of components) {
+                    if (comp.node === component) {
+                        comp.isPickedUp = false;
+                        // Mover a zona de entrega (desaparece)
+                        comp.node.position = new BABYLON.Vector3(
+                            CONFIG.zones.deliveryZone.x,
+                            -10, // Ocultar debajo del suelo
+                            CONFIG.zones.deliveryZone.z
+                        );
+                        break;
+                    }
+                }
+                
+                // Actualizar estado y puntuación
+                isCarrying = false;
+                deliveryCount++;
+                
+                // Calcular puntos
+                const basePoints = CONFIG.basePoints;
+                const timeBonus = Math.max(0, CONFIG.speedBonus - Math.floor(gameTime / 10));
+                const earnedPoints = basePoints + timeBonus;
+                score += earnedPoints;
+                
+                updateHUD();
+                
+                // Efecto de partículas
+                if (deliveryParticles) {
+                    deliveryParticles.emitter = deliveryZone.position.clone();
+                    deliveryParticles.start();
+                    setTimeout(() => deliveryParticles.stop(), 1000);
+                }
+                
+                console.log("✅ Componente entregado! Total:", deliveryCount);
+                showFeedback(`¡Entrega exitosa! +${earnedPoints} pts`, "success");
+                
+                // Verificar si ganó
+                if (deliveryCount >= CONFIG.targetDeliveries && !gameWon) {
+                    gameWon = true;
+                    showVictory();
+                }
+                
+                // Generar nuevo componente
+                component = null;
+                spawnNewComponent();
+                
+            } else {
+                console.log("❌ No estás en la zona de entrega");
+                showFeedback("¡Lleva el componente a la Zona B!", "warning");
+            }
+        }
+
+        // ========================================
+        // ACTUALIZACIÓN DEL JUEGO (CADA FRAME)
+        // ========================================
+        function updateGame() {
+            // Verificar que el jugador existe
+            if (!player) return;
+
+            // ========================================
+            // MOVIMIENTO DEL JUGADOR (WASD RELATIVO A LA CÁMARA)
+            // ========================================
+            let moveDirection = new BABYLON.Vector3(0, 0, 0);
+            let isMoving = false;
+
+            // Obtener vectores de dirección de la cámara
+            const cameraForward = camera.target.subtract(camera.position);
+            cameraForward.y = 0; // Mantener movimiento en el plano horizontal
+            cameraForward.normalize();
+            
+            // Corregir: usar producto cruz correcto para obtener right
+            const cameraRight = BABYLON.Vector3.Cross(cameraForward, BABYLON.Axis.Y);
+            cameraRight.normalize();
+
+            // Calcular movimiento basado en input relativo a la cámara
+            if (inputMap.w) {
+                moveDirection.addInPlace(cameraForward);
+                isMoving = true;
+            }
+            if (inputMap.s) {
+                moveDirection.subtractInPlace(cameraForward);
+                isMoving = true;
+            }
+            if (inputMap.d) {
+                moveDirection.subtractInPlace(cameraRight);
+                isMoving = true;
+            }
+            if (inputMap.a) {
+                moveDirection.addInPlace(cameraRight);
+                isMoving = true;
+            }
+
+            // Aplicar movimiento si hay input
+            if (isMoving && moveDirection.length() > 0) {
+                moveDirection.normalize();
+                moveDirection.scaleInPlace(CONFIG.playerSpeed);
+                player.position.addInPlace(moveDirection);
+                
+                // Rotar jugador suavemente hacia la dirección del movimiento
+                const targetAngle = Math.atan2(moveDirection.x, moveDirection.z) + Math.PI;
+                const currentAngle = player.rotation.y;
+                
+                // Interpolación angular suave
+                let angleDiff = targetAngle - currentAngle;
+                // Normalizar la diferencia angular al rango [-PI, PI]
+                while (angleDiff > Math.PI) angleDiff -= 2 * Math.PI;
+                while (angleDiff < -Math.PI) angleDiff += 2 * Math.PI;
+                
+                player.rotation.y += angleDiff * CONFIG.rotationSpeed;
+                
+                // Activar animación de movimiento
+                if (robotAnimationGroup && !robotAnimationGroup.isPlaying) {
+                    robotAnimationGroup.play(true);
+                }
+            } else {
+                // Detener animación cuando no hay movimiento
+                if (robotAnimationGroup && robotAnimationGroup.isPlaying) {
+                    robotAnimationGroup.stop();
+                }
+            }
+
+            // ========================================
+            // ACTUALIZAR CÁMARA (SEGUIR AL JUGADOR)
+            // ========================================
+            // Actualizar target de la cámara para seguir al jugador suavemente
+            const targetPosition = player.position.add(new BABYLON.Vector3(0, 1.8, 0));
+            camera.target = BABYLON.Vector3.Lerp(camera.target, targetPosition, 0.1);
+        }
+
+        // ========================================
+        // ACTUALIZAR HUD (INTERFAZ)
+        // ========================================
+        function updateHUD() {
+            const statusElement = document.getElementById('carryingStatus');
+            const countElement = document.getElementById('deliveryCount');
+            const scoreElement = document.getElementById('scoreDisplay');
+            const targetElement = document.getElementById('targetCount');
+
+            if (isCarrying) {
+                statusElement.textContent = "⚙️ Cargando componente";
+                statusElement.className = "carrying";
+            } else {
+                statusElement.textContent = "Manos vacías";
+                statusElement.className = "not-carrying";
+            }
+
+            countElement.textContent = deliveryCount;
+            scoreElement.textContent = score;
+            targetElement.textContent = CONFIG.targetDeliveries;
+        }
+        
+        // ========================================
+        // ACTUALIZAR CRONÓMETRO
+        // ========================================
+        function updateTimer() {
+            if (gameWon) return;
+            
+            gameTime = Math.floor((Date.now() - gameStartTime) / 1000);
+            const minutes = Math.floor(gameTime / 60);
+            const seconds = gameTime % 60;
+            
+            const timeDisplay = document.getElementById('timeDisplay');
+            timeDisplay.textContent = `${minutes}:${seconds.toString().padStart(2, '0')}`;
+        }
+
+        // ========================================
+        // FEEDBACK VISUAL (NOTIFICACIONES)
+        // ========================================
+        function showFeedback(message, type) {
+            // Crear elemento de notificación
+            const feedback = document.createElement('div');
+            feedback.textContent = message;
+            feedback.style.cssText = `
+                position: absolute;
+                top: 50%;
+                left: 50%;
+                transform: translate(-50%, -50%);
+                background: ${type === 'success' ? 'rgba(0, 255, 0, 0.8)' : 
+                            type === 'warning' ? 'rgba(255, 165, 0, 0.8)' : 
+                            'rgba(0, 150, 255, 0.8)'};
+                color: white;
+                padding: 20px 40px;
+                border-radius: 10px;
+                font-size: 24px;
+                font-weight: bold;
+                z-index: 1000;
+                box-shadow: 0 0 30px rgba(0, 0, 0, 0.5);
+                animation: fadeInOut 2s ease-in-out;
+            `;
+
+            // Agregar animación CSS
+            const style = document.createElement('style');
+            style.textContent = `
+                @keyframes fadeInOut {
+                    0% { opacity: 0; transform: translate(-50%, -50%) scale(0.5); }
+                    20% { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+                    80% { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+                    100% { opacity: 0; transform: translate(-50%, -50%) scale(0.5); }
+                }
+            `;
+            document.head.appendChild(style);
+
+            document.body.appendChild(feedback);
+
+            // Eliminar después de 2 segundos
+            setTimeout(() => {
+                feedback.remove();
+                style.remove();
+            }, 2000);
+        }
+
+        // ========================================
+        // CREAR MÚLTIPLES COMPONENTES
+        // ========================================
+        async function createMultipleComponents(scene) {
+            try {
+                // Cargar modelo base
+                const componentResult = await BABYLON.SceneLoader.ImportMeshAsync(
+                    "",
+                    "",
+                    CONFIG.models.component,
+                    scene
+                );
+                
+                // Guardar meshes del modelo
+                if (componentResult.meshes.length > 0) {
+                    componentModels = componentResult.meshes.filter(m => m.getTotalVertices() > 0);
+                    // Ocultar los meshes originales para evitar que aparezcan en la escena
+                    componentModels.forEach(mesh => {
+                        mesh.setEnabled(false);
+                        mesh.isVisible = false;
+                    });
+                }
+                
+                // Posiciones aleatorias alrededor de la zona de recogida
+                const positions = [
+                    { x: CONFIG.zones.pickupZone.x - 3, z: CONFIG.zones.pickupZone.z },
+                    { x: CONFIG.zones.pickupZone.x, z: CONFIG.zones.pickupZone.z + 3 },
+                    { x: CONFIG.zones.pickupZone.x + 3, z: CONFIG.zones.pickupZone.z }
+                ];
+                
+                // Crear componentes
+                for (let i = 0; i < CONFIG.maxComponents; i++) {
+                    const compNode = new BABYLON.TransformNode(`component_${i}`, scene);
+                    compNode.position = new BABYLON.Vector3(
+                        positions[i].x,
+                        1.5,
+                        positions[i].z
+                    );
+                    
+                    // Clonar meshes del modelo
+                    if (componentModels.length > 0) {
+                        componentModels.forEach(mesh => {
+                            const clone = mesh.clone(`${mesh.name}_clone_${i}`);
+                            clone.parent = compNode;
+                            clone.setEnabled(true);
+                            clone.isVisible = true; // Asegurar que el clon sea visible
+                        });
+                    } else {
+                        // Fallback: crear cubo
+                        const box = BABYLON.MeshBuilder.CreateBox(`comp_box_${i}`, { size: 1 }, scene);
+                        box.parent = compNode;
+                        const mat = new BABYLON.StandardMaterial(`compMat_${i}`, scene);
+                        mat.diffuseColor = new BABYLON.Color3(1, 0, 0);
+                        box.material = mat;
+                    }
+                    
+                    compNode.scaling = new BABYLON.Vector3(4.5, 4.5, 4.5);
+                    
+                    components.push({
+                        node: compNode,
+                        isPickedUp: false,
+                        initialPos: compNode.position.clone()
+                    });
+                }
+                
+                // Animación de rotación
+                scene.registerBeforeRender(() => {
+                    components.forEach(comp => {
+                        if (!comp.isPickedUp) {
+                            comp.node.rotation.y += 0.02;
+                            comp.node.position.y = 1.5 + Math.sin(Date.now() * 0.002) * 0.2;
+                        }
+                    });
+                });
+                
+                console.log(`✅ ${components.length} componentes creados`);
+                
+            } catch (error) {
+                console.warn("⚠️ Error cargando componentes múltiples:", error);
+            }
+        }
+        
+        // ========================================
+        // GENERAR NUEVO COMPONENTE
+        // ========================================
+        function spawnNewComponent() {
+            // Buscar un componente disponible
+            for (let comp of components) {
+                if (comp.node.position.y < 0) {
+                    // Generar nueva posición aleatoria alrededor de la zona de recogida
+                    const randomOffset = {
+                        x: (Math.random() - 0.5) * 8, // Rango de -4 a +4
+                        z: (Math.random() - 0.5) * 8  // Rango de -4 a +4
+                    };
+                    
+                    const newPosition = new BABYLON.Vector3(
+                        CONFIG.zones.pickupZone.x + randomOffset.x,
+                        1.5,
+                        CONFIG.zones.pickupZone.z + randomOffset.z
+                    );
+                    
+                    // Restaurar componente en nueva posición
+                    comp.node.position = newPosition;
+                    comp.initialPos = newPosition.clone(); // Actualizar posición inicial
+                    comp.isPickedUp = false;
+                    showFeedback("¡Nuevo componente disponible!", "info");
+                    break;
+                }
+            }
+        }
+        
+        // ========================================
+        // CREAR SISTEMAS DE PARTÍCULAS
+        // ========================================
+        function createParticleSystems(scene) {
+            // Sistema de partículas para recogida
+            pickupParticles = new BABYLON.ParticleSystem("pickupParticles", 200, scene);
+            pickupParticles.particleTexture = new BABYLON.Texture("https://assets.babylonjs.com/textures/flare.png", scene);
+            
+            pickupParticles.emitter = new BABYLON.Vector3(0, 0, 0);
+            pickupParticles.minEmitBox = new BABYLON.Vector3(-0.5, 0, -0.5);
+            pickupParticles.maxEmitBox = new BABYLON.Vector3(0.5, 0, 0.5);
+            
+            pickupParticles.color1 = new BABYLON.Color4(0.2, 0.6, 1, 1);
+            pickupParticles.color2 = new BABYLON.Color4(0.4, 0.8, 1, 1);
+            pickupParticles.colorDead = new BABYLON.Color4(0, 0, 0.5, 0);
+            
+            pickupParticles.minSize = 0.3;
+            pickupParticles.maxSize = 0.8;
+            
+            pickupParticles.minLifeTime = 0.3;
+            pickupParticles.maxLifeTime = 0.6;
+            
+            pickupParticles.emitRate = 400;
+            pickupParticles.blendMode = BABYLON.ParticleSystem.BLENDMODE_ADD;
+            
+            pickupParticles.gravity = new BABYLON.Vector3(0, -5, 0);
+            pickupParticles.direction1 = new BABYLON.Vector3(-1, 2, -1);
+            pickupParticles.direction2 = new BABYLON.Vector3(1, 2, 1);
+            
+            pickupParticles.minAngularSpeed = 0;
+            pickupParticles.maxAngularSpeed = Math.PI;
+            
+            pickupParticles.minEmitPower = 2;
+            pickupParticles.maxEmitPower = 4;
+            pickupParticles.updateSpeed = 0.01;
+            
+            // Sistema de partículas para entrega
+            deliveryParticles = new BABYLON.ParticleSystem("deliveryParticles", 300, scene);
+            deliveryParticles.particleTexture = new BABYLON.Texture("https://assets.babylonjs.com/textures/flare.png", scene);
+            
+            deliveryParticles.emitter = new BABYLON.Vector3(0, 0, 0);
+            deliveryParticles.minEmitBox = new BABYLON.Vector3(-1, 0, -1);
+            deliveryParticles.maxEmitBox = new BABYLON.Vector3(1, 0, 1);
+            
+            deliveryParticles.color1 = new BABYLON.Color4(0.2, 1, 0.3, 1);
+            deliveryParticles.color2 = new BABYLON.Color4(1, 1, 0.3, 1);
+            deliveryParticles.colorDead = new BABYLON.Color4(0, 0.5, 0, 0);
+            
+            deliveryParticles.minSize = 0.5;
+            deliveryParticles.maxSize = 1.2;
+            
+            deliveryParticles.minLifeTime = 0.5;
+            deliveryParticles.maxLifeTime = 1;
+            
+            deliveryParticles.emitRate = 500;
+            deliveryParticles.blendMode = BABYLON.ParticleSystem.BLENDMODE_ADD;
+            
+            deliveryParticles.gravity = new BABYLON.Vector3(0, 3, 0);
+            deliveryParticles.direction1 = new BABYLON.Vector3(-2, 4, -2);
+            deliveryParticles.direction2 = new BABYLON.Vector3(2, 6, 2);
+            
+            deliveryParticles.minAngularSpeed = 0;
+            deliveryParticles.maxAngularSpeed = Math.PI;
+            
+            deliveryParticles.minEmitPower = 4;
+            deliveryParticles.maxEmitPower = 8;
+            deliveryParticles.updateSpeed = 0.01;
+            
+            console.log("✅ Sistemas de partículas creados");
+        }
+        
+        // ========================================
+        // PANTALLA DE VICTORIA
+        // ========================================
+        function showVictory() {
+            const victoryScreen = document.createElement('div');
+            victoryScreen.style.cssText = `
+                position: fixed;
+                top: 0;
+                left: 0;
+                width: 100%;
+                height: 100%;
+                background: rgba(0, 0, 0, 0.9);
+                display: flex;
+                flex-direction: column;
+                justify-content: center;
+                align-items: center;
+                z-index: 300;
+                color: white;
+                font-family: 'Segoe UI', sans-serif;
+            `;
+            
+            victoryScreen.innerHTML = `
+                <h1 style="font-size: 72px; color: #00ff00; margin: 20px; text-shadow: 0 0 20px #00ff00;">
+                    🎉 ¡VICTORIA! 🎉
+                </h1>
+                <h2 style="font-size: 36px; margin: 10px;">
+                    ¡Completaste todas las entregas!
+                </h2>
+                <div style="font-size: 28px; margin: 20px; text-align: center;">
+                    <p>⏱️ Tiempo: ${Math.floor(gameTime / 60)}:${(gameTime % 60).toString().padStart(2, '0')}</p>
+                    <p>⭐ Puntuación Final: <span style="color: #ffcc00; font-size: 42px; font-weight: bold;">${score}</span></p>
+                    <p>📦 Entregas: ${deliveryCount} / ${CONFIG.targetDeliveries}</p>
+                </div>
+                <button onclick="location.reload()" style="
+                    margin-top: 30px;
+                    padding: 15px 40px;
+                    font-size: 24px;
+                    background: #00ff00;
+                    color: black;
+                    border: none;
+                    border-radius: 10px;
+                    cursor: pointer;
+                    font-weight: bold;
+                    box-shadow: 0 0 20px #00ff00;
+                ">
+                    🔄 Jugar de Nuevo
+                </button>
+            `;
+            
+            document.body.appendChild(victoryScreen);
+            
+            // Fuegos artificiales con partículas
+            if (deliveryParticles) {
+                deliveryParticles.emitter = new BABYLON.Vector3(0, 5, 0);
+                deliveryParticles.start();
+            }
+        }
+
+        // ========================================
+        // LÍMITES DEL MAPA (PAREDES INVISIBLES)
+        // ========================================
+        function createBoundaries(scene) {
+            const boundarySize = 25;
+            const wallHeight = 10;
+            const wallThickness = 1;
+
+            const boundaries = [
+                { pos: [0, wallHeight/2, boundarySize], size: [boundarySize*2, wallHeight, wallThickness] }, // Norte
+                { pos: [0, wallHeight/2, -boundarySize], size: [boundarySize*2, wallHeight, wallThickness] }, // Sur
+                { pos: [boundarySize, wallHeight/2, 0], size: [wallThickness, wallHeight, boundarySize*2] }, // Este
+                { pos: [-boundarySize, wallHeight/2, 0], size: [wallThickness, wallHeight, boundarySize*2] }  // Oeste
+            ];
+
+            boundaries.forEach((boundary, index) => {
+                const wall = BABYLON.MeshBuilder.CreateBox(
+                    `boundary${index}`,
+                    { width: boundary.size[0], height: boundary.size[1], depth: boundary.size[2] },
+                    scene
+                );
+                wall.position = new BABYLON.Vector3(...boundary.pos);
+                wall.isVisible = false; // Invisible
+                wall.checkCollisions = true;
+            });
+        }
+
+        // ========================================
+        // MANEJO DE ERRORES
+        // ========================================
+        window.addEventListener('error', (e) => {
+            console.error('Error del juego:', e.error);
+        });
+
+        // ========================================
+        // INFORMACIÓN DE DEPURACIÓN (F12)
+        // ========================================
+        window.addEventListener('keydown', (e) => {
+            if (e.key === 'F12') {
+                console.log('=== DEBUG INFO ===');
+                console.log('Player Position:', player ? player.position : 'N/A');
+                console.log('Component Position:', component ? component.position : 'N/A');
+                console.log('Is Carrying:', isCarrying);
+                console.log('Delivery Count:', deliveryCount);
+                console.log('FPS:', engine.getFps().toFixed());
+            }
+        });
+
+        console.log(`
+        ╔═══════════════════════════════════════╗
+        ║  🤖 ROBOT DE FÁBRICA - PICK & DELIVER ║
+        ║                                       ║
+        ║  Desarrollado con Babylon.js          ║
+        ║  Controles: WASD + ESPACIO            ║
+        ║  Presiona F12 para información debug  ║
+        ╚═══════════════════════════════════════╝
+        `);
+    </script>
+</body>
+</html>
